@@ -51,6 +51,11 @@ services:
       postgres:
         condition: service_healthy
 
+  web:
+    build: ./web
+    ports: ["5173:80"]
+    depends_on: [api]
+
 volumes:
   pgdata:
   minio:
