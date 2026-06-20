@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import User
 
@@ -13,8 +14,19 @@ async def upsert_user(db: AsyncSession, *, provider: str, subject: str,
         user = User(oauth_provider=provider, oauth_subject=subject,
                     email=email, name=name, avatar_url=avatar_url)
         db.add(user)
-    else:
-        user.email, user.name, user.avatar_url = email, name, avatar_url
+        try:
+            await db.commit()
+        except IntegrityError:
+            # A concurrent request inserted the same (provider, subject) first.
+            await db.rollback()
+            user = (await db.execute(stmt)).scalar_one()
+            user.email, user.name, user.avatar_url = email, name, avatar_url
+            await db.commit()
+            await db.refresh(user)
+            return user
+        await db.refresh(user)
+        return user
+    user.email, user.name, user.avatar_url = email, name, avatar_url
     await db.commit()
     await db.refresh(user)
     return user
