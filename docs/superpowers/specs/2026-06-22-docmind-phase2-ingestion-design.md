@@ -25,7 +25,7 @@ SSE progress streaming (deferred — see §9).
 | Question | Decision |
 |---|---|
 | Embedding | Real NVIDIA hosted NIM `llama-3.2-nv-embedqa` (user has/will get a key), behind an `Embedder` interface with a deterministic `StubEmbedder` for tests |
-| Extraction | Stand up **nv-ingest now in text mode**, behind an `Extractor` interface; a contained spike (Task 1) proves it installs/extracts before the pipeline is built on it |
+| Extraction | Stand up **nv-ingest now in text mode**, behind an `Extractor` interface; **no fallback extractor** — a contained spike (Task 1) proves it installs/extracts before the pipeline is built on it, and a spike failure is a blocker to resolve, not routed around |
 | Milvus index | **Dense vectors only** now; sparse/hybrid deferred to Phase 3 |
 | Progress | **Polling** (TanStack Query `refetchInterval`); SSE deferred to a later point (§9) |
 
@@ -40,7 +40,7 @@ React, or arq).
 | Unit | File | Responsibility |
 |---|---|---|
 | `Extractor` (interface) | `api/app/ingest/extractor.py` | `extract(data: bytes, mime: str) -> list[TextSegment]` (text + page_no) |
-| `NvIngestExtractor` | `api/app/ingest/nvingest_extractor.py` | nv-ingest in text mode; config-driven endpoints |
+| `NvIngestExtractor` | `api/app/ingest/nvingest_extractor.py` | nv-ingest in text mode; config-driven endpoints; **the only Extractor impl** |
 | `Chunker` | `api/app/ingest/chunker.py` | `chunk(segments) -> list[Chunk]` (recursive, preserves page refs) |
 | `Embedder` (interface) | `api/app/ingest/embedder.py` | `embed(texts: list[str]) -> list[list[float]]` |
 | `NimEmbedder` | `api/app/ingest/nim_embedder.py` | calls `llama-3.2-nv-embedqa` (hosted NIM) |
@@ -52,14 +52,15 @@ React, or arq).
 **Dependency direction:** routes → `IngestionService`/repos → the four interfaces → models.
 The worker and routes are thin shells over `IngestionService`.
 
-### nv-ingest install risk (managed, not assumed away)
+### nv-ingest install risk (spike-first, no fallback)
 nv-ingest's Python library is heavy and historically finicky to install (deps, image size).
-**Task 1 of the plan is a contained spike**: prove nv-ingest installs in the worker image and
-extracts text from a sample PDF *before* building the pipeline on it. Because everything sits
-behind `Extractor`, if it cannot be made to work cleanly in the container we fall back to a
-`PlainExtractor` (`pypdf` + `python-docx` + plain text) for Phase 2 with zero downstream change;
-nv-ingest returns as the multimodal engine in Phase 4 regardless. The spike's outcome is
-recorded in the plan before dependent tasks proceed.
+Per the user's decision, nv-ingest is the **only** extractor — there is no `PlainExtractor`
+fallback. To de-risk this, **Task 1 of the plan is a contained spike**: prove nv-ingest installs
+in the worker image and extracts text from a sample PDF *before* building the pipeline on it.
+The spike's outcome is recorded in the plan before dependent tasks proceed. If the spike cannot
+be made to work cleanly in the container, that is a **blocker escalated to the user** — Phase 2
+does not proceed on a substitute extractor. The `Extractor` interface still exists (clean
+boundary + the seam Phase 4 swaps multimodal mode into), but it has exactly one implementation.
 
 ---
 
